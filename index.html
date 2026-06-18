@@ -672,8 +672,7 @@ async function cargarRanking(tipo) {
       <div class="ranking-pos ${posClass}">#${pos}</div>
       ${avatarHTML}
       <div class="ranking-info">
-        <div class="ranking-nombre">${u.nombre} ${esYo ? '<span style="color:var(--celeste);font-size:0.7rem">· vos</span>' : ''}</div>
-        <div class="ranking-prov">${u.provincia || ''}</div>
+        <div class="ranking-nombre">${u.nombre.split(' ')[0]} ${esYo ? '<span style="color:var(--celeste);font-size:0.7rem">· vos</span>' : ''}</div>
       </div>
       <div style="text-align:right">
         <div class="ranking-puntos">${pts}</div>
