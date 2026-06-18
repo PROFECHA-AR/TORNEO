@@ -546,9 +546,11 @@ window.crearNuevaFecha = async function() {
 };
 
 // ── ESCUCHAR PARTIDOS EN TIEMPO REAL ──
+let unsubscribePartidos = null;
 function escucharPartidos() {
   if (!fechaActualId) return;
-  onValue(ref(db, `fechas/${fechaActualId}/partidos`), (snap) => {
+  if (unsubscribePartidos) { unsubscribePartidos(); unsubscribePartidos = null; }
+  unsubscribePartidos = onValue(ref(db, `fechas/${fechaActualId}/partidos`), (snap) => {
     partidosCache = snap.exists() ? snap.val() : {};
     actualizarDashboardPartidos();
     const panel = document.getElementById('panel-fechas');
@@ -795,38 +797,54 @@ window.confirmarResultado = async function() {
     await update(ref(db, `fechas/${fechaActualId}/partidos/${modalPartidoId}`), {
       resultadoLocal: rl, resultadoVisitante: rv
     });
-    // Calcular puntos para todos los usuarios
+    // Leer datos frescos de todos los usuarios desde Firebase antes de calcular
+    const usuariosSnap = await get(ref(db, 'usuarios'));
     const updates = {};
-    for (const u of usuariosCache) {
-      const pron = u.fechas && u.fechas[fechaActualId] && u.fechas[fechaActualId].pronosticos
-        ? u.fechas[fechaActualId].pronosticos[modalPartidoId] : null;
-      if (!pron) continue;
-      // Calcular puntos
-      let pts = 0;
-      if (pron.local === rl && pron.visitante === rv) pts = 3;
-      else if (Math.sign(pron.local - pron.visitante) === Math.sign(rl - rv)) pts = 1;
-      // Calcular precisión del partido
-      let prec = 0;
-      if (pts === 3) prec = 100;
-      else if (pts === 1) {
-        const dif = Math.abs(pron.local-rl) + Math.abs(pron.visitante-rv);
-        prec = Math.max(10, Math.round(80 - dif*15));
-      }
-      // Acumular en la ruta del usuario
-      const fechaDatos = u.fechas && u.fechas[fechaActualId] ? u.fechas[fechaActualId] : { puntos:0 };
-      const puntosActualesFecha = fechaDatos.puntos || 0;
-      const puntosNuevosFecha = puntosActualesFecha + pts;
-      const puntosNuevosTorneo = (u.puntosTorneo || 0) + pts;
-      updates[`usuarios/${u.uid}/fechas/${fechaActualId}/puntos`] = puntosNuevosFecha;
-      updates[`usuarios/${u.uid}/puntosTorneo`] = puntosNuevosTorneo;
-      updates[`usuarios/${u.uid}/fechas/${fechaActualId}/pronosticos/${modalPartidoId}/puntos`] = pts;
-      updates[`usuarios/${u.uid}/fechas/${fechaActualId}/pronosticos/${modalPartidoId}/precision`] = prec;
-      // Actualizar precisión promedio
-      updates[`usuarios/${u.uid}/precisionPromedio`] = prec; // simplificado; en prod calcularías promedio real
+    let afectados = 0;
+    if (usuariosSnap.exists()) {
+      usuariosSnap.forEach(child => {
+        const u = child.val();
+        const uid = child.key;
+        if (!u.nombre) return;
+        const pron = u.fechas && u.fechas[fechaActualId] && u.fechas[fechaActualId].pronosticos
+          ? u.fechas[fechaActualId].pronosticos[modalPartidoId] : null;
+        if (!pron || pron.puntos !== undefined) return; // ya fue calculado antes, no sumar de nuevo
+        // Calcular puntos
+        let pts = 0;
+        if (pron.local === rl && pron.visitante === rv) pts = 3;
+        else if (Math.sign(pron.local - pron.visitante) === Math.sign(rl - rv)) pts = 1;
+        // Calcular precisión del partido
+        let precPartido = 0;
+        if (pts === 3) precPartido = 100;
+        else if (pts === 1) {
+          const dif = Math.abs(pron.local-rl) + Math.abs(pron.visitante-rv);
+          precPartido = Math.max(10, Math.round(80 - dif*15));
+        }
+        // Leer puntos actuales desde los datos frescos de Firebase
+        const puntosActualesFecha = (u.fechas && u.fechas[fechaActualId] && u.fechas[fechaActualId].puntos) || 0;
+        const puntosNuevosFecha = puntosActualesFecha + pts;
+        const puntosNuevosTorneo = (u.puntosTorneo || 0) + pts;
+        // Calcular precisión promedio real de todos los partidos del usuario
+        let totalPrec = precPartido, cantPrec = 1;
+        if (u.fechas) {
+          Object.values(u.fechas).forEach(fd => {
+            if (fd.pronosticos) Object.values(fd.pronosticos).forEach(p => {
+              if (p.precision !== undefined) { totalPrec += p.precision; cantPrec++; }
+            });
+          });
+        }
+        const precPromedio = Math.round(totalPrec / cantPrec);
+        updates[`usuarios/${uid}/fechas/${fechaActualId}/puntos`] = puntosNuevosFecha;
+        updates[`usuarios/${uid}/puntosTorneo`] = puntosNuevosTorneo;
+        updates[`usuarios/${uid}/fechas/${fechaActualId}/pronosticos/${modalPartidoId}/puntos`] = pts;
+        updates[`usuarios/${uid}/fechas/${fechaActualId}/pronosticos/${modalPartidoId}/precision`] = precPartido;
+        updates[`usuarios/${uid}/precisionPromedio`] = precPromedio;
+        afectados++;
+      });
     }
     if (Object.keys(updates).length > 0) await update(ref(db), updates);
     cerrarModal();
-    toast(`✅ Resultado cargado y puntos calculados para ${usuariosCache.length} usuarios`);
+    toast(`✅ Resultado cargado · Puntos calculados para ${afectados} participantes`);
   } catch(e) {
     toast('Error al cargar resultado: ' + e.message);
   }
