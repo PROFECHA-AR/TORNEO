@@ -505,32 +505,49 @@ async function cargarFechas() {
   let ids = [];
   if (snap.exists()) {
     snap.forEach(c => ids.push(c.key));
-    ids.sort((a,b) => Number(b) - Number(a));
+    ids.sort((a,b) => Number(a) - Number(b));
     ids.forEach(id => {
       const opt = document.createElement('option');
       opt.value = id; opt.textContent = 'Fecha ' + id;
       sel.appendChild(opt);
     });
   }
-  // Cargar fecha activa de config
+  // Determinar fecha activa desde config
   const configSnap = await get(ref(db, 'config/fechaActual'));
+  let idActiva = null;
   if (configSnap.exists()) {
-    fechaActualId = configSnap.val();
-    sel.value = fechaActualId;
+    idActiva = String(configSnap.val());
   } else if (ids.length > 0) {
-    fechaActualId = ids[0];
-    sel.value = fechaActualId;
+    idActiva = ids[ids.length - 1]; // última fecha por defecto
   }
+  if (idActiva) {
+    fechaActualId = idActiva;
+    sel.value = idActiva;
+    actualizarTopbarFecha();
+    escucharPartidos();
+  }
+}
+
+function actualizarTopbarFecha() {
   document.getElementById('topbar-fecha-label').textContent = 'Fecha ' + fechaActualId + ' · Clausura 2026';
-  escucharPartidos();
 }
 
 window.cambiarFechaActiva = async function() {
-  fechaActualId = document.getElementById('sel-fecha-activa').value;
+  const nuevoId = document.getElementById('sel-fecha-activa').value;
+  if (!nuevoId || nuevoId === fechaActualId) return;
+  fechaActualId = nuevoId;
   await set(ref(db, 'config/fechaActual'), fechaActualId);
-  document.getElementById('topbar-fecha-label').textContent = 'Fecha ' + fechaActualId + ' · Clausura 2026';
+  actualizarTopbarFecha();
+  partidosCache = {};
   escucharPartidos();
-  toast('✅ Fecha activa cambiada a Fecha ' + fechaActualId);
+  // Refrescar panel activo
+  const panelActivo = document.querySelector('.panel.active');
+  if (panelActivo) {
+    if (panelActivo.id === 'panel-fechas') renderTablaPartidos();
+    if (panelActivo.id === 'panel-resultados') renderTablaResultados();
+    if (panelActivo.id === 'panel-dashboard') actualizarDashboardPartidos();
+  }
+  toast('✅ Ahora estás viendo Fecha ' + fechaActualId);
 };
 
 window.crearNuevaFecha = async function() {
@@ -539,9 +556,20 @@ window.crearNuevaFecha = async function() {
   if (snap.exists()) snap.forEach(c => { if (Number(c.key) > maxId) maxId = Number(c.key); });
   const newId = String(maxId + 1);
   await set(ref(db, `fechas/${newId}`), { creada: new Date().toISOString() });
-  await cargarFechas();
-  document.getElementById('sel-fecha-activa').value = newId;
-  await window.cambiarFechaActiva();
+  // Agregar al selector sin recargar todo
+  const sel = document.getElementById('sel-fecha-activa');
+  const opt = document.createElement('option');
+  opt.value = newId; opt.textContent = 'Fecha ' + newId;
+  sel.appendChild(opt);
+  // Activar la nueva fecha
+  sel.value = newId;
+  fechaActualId = newId;
+  await set(ref(db, 'config/fechaActual'), newId);
+  actualizarTopbarFecha();
+  partidosCache = {};
+  escucharPartidos();
+  renderTablaPartidos();
+  renderTablaResultados();
   toast(`✅ Fecha ${newId} creada y activada`);
 };
 
