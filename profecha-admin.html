@@ -363,8 +363,15 @@ function adminLogin() {
   if (pwd === ADMIN_PASSWORD) {
     document.getElementById('screen-login').classList.remove('active');
     sessionStorage.setItem('profecha_admin','1');
-    if (typeof iniciarAdmin === 'function') iniciarAdmin();
-    else window._adminReady = true;
+    // Esperar a que el modulo Firebase este listo
+    function tryInit(retries) {
+      if (typeof window.iniciarAdmin === 'function') {
+        window.iniciarAdmin();
+      } else if (retries > 0) {
+        setTimeout(function(){ tryInit(retries - 1); }, 200);
+      }
+    }
+    tryInit(20);
   } else {
     err.style.display = 'block';
     setTimeout(function(){ err.style.display='none'; }, 2000);
@@ -442,6 +449,14 @@ window.goPanel = function(id, el) {
 };
 
 window.iniciarAdmin = async function() {
+  // Mostrar sidebar y main, ocultar login
+  document.getElementById('screen-login').classList.remove('active');
+  // Activar dashboard por defecto
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('panel-dashboard').classList.add('active');
+  document.querySelector('.nav-item').classList.add('active');
+  document.getElementById('topbar-title').textContent = 'Dashboard';
   await cargarFechas();
   escucharUsuarios();
   cargarNombreTorneo();
@@ -963,8 +978,6 @@ window.exportarCSV = function() {
 
 // AUTO LOGIN
 if (sessionStorage.getItem('profecha_admin')==='1') {
-  window.iniciarAdmin();
-} else if (window._adminReady) {
   window.iniciarAdmin();
 }
 </script>
