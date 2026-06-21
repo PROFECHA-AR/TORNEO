@@ -142,8 +142,8 @@
   .tab-btn { flex:1; padding:0.5rem; text-align:center; font-size:0.8rem; font-weight:600; letter-spacing:0.5px; color:var(--blanco2); background:transparent; border:none; border-radius:7px; cursor:pointer; font-family:'Inter',sans-serif; transition:all 0.2s; }
   .tab-btn.active { background:rgba(0,180,216,0.2); color:var(--celeste); }
 
-  /* LOADING */
-  #screen-loading { align-items:center; justify-content:center; background:var(--negro); gap:1rem; flex-direction:column; }
+
+
   .loading-spinner { width:48px; height:48px; border:3px solid rgba(0,180,216,0.2); border-top-color:var(--celeste); border-radius:50%; animation:spin 0.8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   .loading-text { font-size:0.8rem; color:var(--blanco2); letter-spacing:2px; text-transform:uppercase; }
@@ -152,6 +152,18 @@
   .empty-state { text-align:center; padding:3rem 1rem; color:var(--blanco2); }
   .empty-state-icon { font-size:2.5rem; margin-bottom:0.8rem; }
   .empty-state-text { font-size:0.9rem; }
+
+  /* NOTIFICACION */
+  .notif-banner { margin:0 0 1rem; padding:0.8rem 1.1rem; border-radius:12px; font-size:0.84rem; display:none; }
+  .notif-banner.activa { display:flex; align-items:flex-start; gap:10px; }
+  .notif-info { background:rgba(0,180,216,0.1); border:1px solid rgba(0,180,216,0.3); color:var(--blanco); }
+  .notif-alerta { background:rgba(241,196,15,0.1); border:1px solid rgba(241,196,15,0.3); color:var(--amarillo); }
+  .notif-exito { background:rgba(46,204,113,0.1); border:1px solid rgba(46,204,113,0.3); color:var(--verde); }
+  .notif-titulo { font-weight:700; margin-bottom:2px; }
+  .notif-msg { font-size:0.8rem; opacity:0.85; }
+
+  /* TORNEO LABEL */
+  .torneo-label { font-size:0.72rem; color:var(--blanco2); margin-top:3px; }
 
   /* TOAST */
   .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(80px); background:var(--negro2); border:1px solid var(--celeste); color:var(--blanco); padding:0.8rem 1.5rem; border-radius:10px; font-size:0.85rem; font-weight:500; transition:transform 0.3s ease; z-index:1000; white-space:nowrap; }
@@ -256,20 +268,30 @@
 
   <!-- TAB: FECHA -->
   <div id="tab-fecha" class="main-content">
-    <div class="fecha-header">
+
+    <div class="notif-banner" id="notif-banner">
+      <div>
+        <div class="notif-titulo" id="notif-banner-titulo"></div>
+        <div class="notif-msg" id="notif-banner-msg"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;">
       <div>
         <div class="fecha-title" id="fecha-titulo">Cargando...</div>
-        <div style="font-size:0.78rem;color:var(--blanco2);margin-top:2px">Torneo Clausura 2026</div>
+        <div style="font-size:0.75rem;color:var(--blanco2);margin-top:2px" id="torneo-label">Torneo</div>
       </div>
       <span class="estado-abierta fecha-estado">Abierta</span>
     </div>
+
     <div class="partidos-grid" id="partidos-container">
-      <div class="empty-state"><div class="empty-state-icon">⚽</div><div class="empty-state-text">Cargando partidos...</div></div>
+      <div class="empty-state"><div class="empty-state-icon">&#x26BD;</div><div class="empty-state-text">Cargando partidos...</div></div>
     </div>
     <button class="btn-guardar-fecha" id="btn-guardar" onclick="guardarPronosticos()" style="display:none">
       Guardar pronósticos de la fecha
     </button>
   </div>
+
 
   <!-- TAB: RANKING -->
   <div id="tab-ranking" class="main-content" style="display:none">
@@ -500,29 +522,40 @@ function iniciarApp() {
   cargarFechaActual();
 }
 
-// ── CARGAR FECHA ACTUAL ──
+
+
 async function cargarFechaActual() {
   const snap = await get(ref(db, 'config/fechaActual'));
   if (!snap.exists()) {
     document.getElementById('partidos-container').innerHTML =
-      '<div class="empty-state"><div class="empty-state-icon">📅</div><div class="empty-state-text">No hay fecha activa. El administrador debe configurar los partidos.</div></div>';
+      '<div class="empty-state"><div class="empty-state-icon">&#x26BD;</div><div class="empty-state-text">No hay fecha activa. El administrador debe configurar los partidos.</div></div>';
     return;
   }
   fechaActualId = snap.val();
   document.getElementById('fecha-titulo').textContent = 'Fecha ' + fechaActualId;
 
-  // Cargar pronósticos del usuario para esta fecha
-  const pronSnap = await get(ref(db, `usuarios/${currentUser.uid}/fechas/${fechaActualId}/pronosticos`));
+  const nombreSnap = await get(ref(db, 'config/nombreTorneo'));
+  const torneoLabel = document.getElementById('torneo-label');
+  if (torneoLabel) torneoLabel.textContent = nombreSnap.exists() ? nombreSnap.val() : 'Torneo Clausura 2026';
+
+  const notifSnap = await get(ref(db, 'config/notificacion'));
+  const banner = document.getElementById('notif-banner');
+  if (banner && notifSnap.exists() && notifSnap.val().activa) {
+    const n = notifSnap.val();
+    banner.className = 'notif-banner activa notif-' + (n.tipo || 'info');
+    document.getElementById('notif-banner-titulo').textContent = n.titulo || '';
+    document.getElementById('notif-banner-msg').textContent = n.msg || '';
+  }
+
+  const pronSnap = await get(ref(db, 'usuarios/' + currentUser.uid + '/fechas/' + fechaActualId + '/pronosticos'));
   pronosticosUsuario = pronSnap.exists() ? pronSnap.val() : {};
 
-  // Escuchar cambios en partidos en tiempo real
-  onValue(ref(db, `fechas/${fechaActualId}/partidos`), (snap) => {
+  onValue(ref(db, 'fechas/' + fechaActualId + '/partidos'), (snap) => {
     partidos = snap.exists() ? snap.val() : {};
     renderPartidos();
   });
 }
 
-// ── RENDER PARTIDOS ──
 function renderPartidos() {
   const container = document.getElementById('partidos-container');
   const btnGuardar = document.getElementById('btn-guardar');
